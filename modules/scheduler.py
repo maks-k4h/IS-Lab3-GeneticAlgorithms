@@ -38,12 +38,11 @@ class Scheduler:
         for generation in range(self._n_generations):
             new_population = []
             while len(new_population) < self._population_size:
-                parent_a, parent_b = random.choices(population, k=2)
-                child_a, child_b = self._crossover(parent_a, parent_b)
-                child_a, child_b = self._mutate(child_a, teachers), self._mutate(child_b, teachers)
-                for c in [child_a, child_b]:
-                    if self._check_hard_constraints(c):
-                        new_population.append(c)
+                parent = random.choice(population)
+                child = self._mutate(parent, teachers, rooms)
+                if self._check_hard_constraints(child):
+                    new_population.append(child)
+
             if self._selection_strategy == SelectionStrategy.GREEDY:
                 population = list(sorted(population + new_population, reverse=True, key=lambda x: self._get_score(x)))[:self._population_size]
             elif self._selection_strategy == SelectionStrategy.RAIN:
@@ -201,17 +200,11 @@ class Scheduler:
                 for vs in Scheduler._all_combinations_helper(*other_iterables):
                     yield v, *vs
 
-    @staticmethod
-    def _crossover(
-            parent_a: entities.schedule.Schedule,
-            parent_b: entities.schedule.Schedule
-    ) -> tuple[entities.schedule.Schedule, entities.schedule.Schedule]:
-        return parent_a, parent_b
-
     def _mutate(
             self,
             schedule: entities.schedule.Schedule,
             teachers: list[entities.teacher.Teacher],
+            rooms: list[entities.room.Room],
     ) -> entities.schedule.Schedule:
         if random.random() < self._mutation_probability:
             return schedule
@@ -221,9 +214,10 @@ class Scheduler:
         class MutationType(enum.Enum):
             CHANGE_TIME_SLOT = 0
             CHANGE_TEACHER = 1
-            SWAP = 3
+            CHANGE_ROOM = 3
+            SWAP = 4
 
-        mutation = random.choice([MutationType.CHANGE_TIME_SLOT, MutationType.CHANGE_TEACHER, MutationType.SWAP])
+        mutation = random.choice([MutationType.CHANGE_TIME_SLOT, MutationType.CHANGE_TEACHER, MutationType.CHANGE_ROOM, MutationType.SWAP])
         if mutation == MutationType.CHANGE_TIME_SLOT:
             session = random.choice(schedule.sessions)
             session.time_slot = entities.time_slot.TimeSlot(
@@ -247,6 +241,9 @@ class Scheduler:
             session = random.choice(schedule.sessions)
             teacher_candidates = [t for t in teachers if session.subject.name in [s.name for s in t.teachable_subjects]]
             session.teacher = random.choice(teacher_candidates)
+        elif mutation == MutationType.CHANGE_ROOM:
+            session = random.choice(schedule.sessions)
+            session.room = random.choice(rooms)
         elif mutation == MutationType.SWAP:
             i1, i2 = random.choices(list(range(len(schedule.sessions))), k=2)
             schedule.sessions[i2].time_slot = schedule.sessions[i1].time_slot
