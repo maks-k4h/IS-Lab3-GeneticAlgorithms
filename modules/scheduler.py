@@ -41,7 +41,6 @@ class Scheduler:
                 for c in [child_a, child_b]:
                     if self._check_hard_constraints(c):
                         new_population.append(c)
-
             if self._selection_strategy == SelectionStrategy.GREEDY:
                 population = list(sorted(population + new_population, reverse=True, key=lambda x: self._get_score(x)))[:self._population_size]
             elif self._selection_strategy == SelectionStrategy.RAIN:
@@ -55,14 +54,71 @@ class Scheduler:
                 best_schedule = population[0]
             else:
                 generations_without_improvement = generations_without_improvement + 1
+            print('Best score after {} generations: {}'.format(generations_without_improvement,
+                                                               self._get_score(best_schedule)))
 
         return best_schedule
 
-    def _check_hard_constraints(self, schedule: entities.schedule.Schedule) -> bool:
+    @staticmethod
+    def _check_hard_constraints(schedule: entities.schedule.Schedule) -> bool:
+        for s1 in schedule.sessions:
+            for s2 in schedule.sessions:
+                if s1 is s2:
+                    continue
+                if s1.time_slot.time != s2.time_slot.time:
+                    continue
+                if s1.time_slot.day != s2.time_slot.day:
+                    continue
+                if s1.group.name == s2.group.name or s1.room.identifier == s2.room.identifier or s1.teacher.fullname == s2.teacher.fullname:
+                    return False
         return True
 
-    def _get_score(self, schedule: entities.schedule.Schedule) -> float:
-        return random.random()
+    @staticmethod
+    def _get_score(schedule: entities.schedule.Schedule) -> float:
+        # Calculate the number of "windows"
+        groups = set()
+        teachers = set()
+        for s in schedule.sessions:
+            groups.add(s.group.name)
+            teachers.add(s.teacher.fullname)
+        total_groups_windows = 0
+        for group in groups:
+            slots = []
+            for session in schedule.sessions:
+                if session.group.name == group:
+                    slots.append(session.time_slot)
+            total_groups_windows += Scheduler._calculate_windows_number(slots)
+        total_teachers_windows = 0
+        for teacher in teachers:
+            slots = []
+            for session in schedule.sessions:
+                if session.teacher.fullname == teacher:
+                    slots.append(session.time_slot)
+            total_teachers_windows += Scheduler._calculate_windows_number(slots)
+
+        # Calculate the total number of seats lacking
+        seats_lacking = 0
+        for session in schedule.sessions:
+            seats_lacking += max(session.group.size - session.room.capacity, 0)
+
+        return 1 / (1 + total_groups_windows + total_teachers_windows + seats_lacking)
+
+    @staticmethod
+    def _calculate_windows_number(time_slots: list[entities.time_slot.TimeSlot]) -> int:
+        res = 0
+        for day in [
+            entities.time_slot.TimeSlotDay.MONDAY,
+            entities.time_slot.TimeSlotDay.TUESDAY,
+            entities.time_slot.TimeSlotDay.WEDNESDAY,
+            entities.time_slot.TimeSlotDay.THURSDAY,
+            entities.time_slot.TimeSlotDay.FRIDAY,
+        ]:
+            slots = [s for s in time_slots if s.day == day]
+            if len(slots) > 1:
+                s0 = min(slots, key=lambda s: s.time.value)
+                s1 = max(slots, key=lambda s: s.time.value)
+                res += (s1.time.value - s0.time.value) - len(slots) + 1
+        return res
 
     def _generate_initial_population(
             self,
@@ -106,7 +162,7 @@ class Scheduler:
                         entities.time_slot.TimeSlotTime.FIFTH,
                         entities.time_slot.TimeSlotTime.SIXTH,
                     ]
-                    room_candidates = [r for r in rooms if r.capacity >= group.size]
+                    room_candidates = rooms.copy()
                     random.shuffle(teacher_candidates)
                     random.shuffle(time_candidates)
                     random.shuffle(day_candidates)
@@ -116,7 +172,7 @@ class Scheduler:
                         # Check if interferes with any other session
                         interferes = False
                         for session in schedule.sessions:
-                            if not (session.time_slot.day == day and session.time_slot == time):
+                            if not (session.time_slot.day == day and session.time_slot.time == time):
                                 continue
                             if session.room.identifier != room.identifier and session.teacher.fullname != teacher.fullname and session.group.name != group.name:
                                 continue
@@ -129,6 +185,7 @@ class Scheduler:
                     if session is None:
                         return None
                     schedule.sessions.append(session)
+        assert self._check_hard_constraints(schedule)
         return schedule
 
     @staticmethod
