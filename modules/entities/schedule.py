@@ -1,4 +1,4 @@
-from .entities.session import Session
+from .session import Session
 
 
 class Schedule:
