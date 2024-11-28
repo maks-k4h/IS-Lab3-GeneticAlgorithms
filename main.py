@@ -16,7 +16,7 @@ def main(args: argparse.Namespace) -> None:
 
     scheduler = modules.scheduler.Scheduler(
         population_size=100,
-        n_generations=100,
+        n_generations=25,
         selection_strategy=modules.scheduler.SelectionStrategy.GREEDY,
     )
     schedule = scheduler.run(groups, rooms, teachers)

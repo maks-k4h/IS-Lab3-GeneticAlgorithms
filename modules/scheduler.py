@@ -1,3 +1,4 @@
+import copy
 import enum
 import random
 from typing import Optional
@@ -21,6 +22,8 @@ class Scheduler:
         self._n_generations = n_generations
         self._selection_strategy = selection_strategy
 
+        self._mutation_probability = 0.3
+
     def run(
             self,
             groups: list[entities.group.Group],
@@ -37,7 +40,7 @@ class Scheduler:
             while len(new_population) < self._population_size:
                 parent_a, parent_b = random.choices(population, k=2)
                 child_a, child_b = self._crossover(parent_a, parent_b)
-                child_a, child_b = self._mutate(child_a), self._mutate(child_b)
+                child_a, child_b = self._mutate(child_a, teachers), self._mutate(child_b, teachers)
                 for c in [child_a, child_b]:
                     if self._check_hard_constraints(c):
                         new_population.append(c)
@@ -54,9 +57,9 @@ class Scheduler:
                 best_schedule = population[0]
             else:
                 generations_without_improvement = generations_without_improvement + 1
+            current_score = self._get_score(best_schedule)
             print('Best score after {} generations: {}'.format(generations_without_improvement,
-                                                               self._get_score(best_schedule)))
-
+                                                               current_score))
         return best_schedule
 
     @staticmethod
@@ -205,6 +208,50 @@ class Scheduler:
     ) -> tuple[entities.schedule.Schedule, entities.schedule.Schedule]:
         return parent_a, parent_b
 
-    @staticmethod
-    def _mutate(schedule: entities.schedule.Schedule) -> entities.schedule.Schedule:
+    def _mutate(
+            self,
+            schedule: entities.schedule.Schedule,
+            teachers: list[entities.teacher.Teacher],
+    ) -> entities.schedule.Schedule:
+        if random.random() < self._mutation_probability:
+            return schedule
+
+        schedule = copy.deepcopy(schedule)
+
+        class MutationType(enum.Enum):
+            CHANGE_TIME_SLOT = 0
+            CHANGE_TEACHER = 1
+            SWAP = 3
+
+        mutation = random.choice([MutationType.CHANGE_TIME_SLOT, MutationType.CHANGE_TEACHER, MutationType.SWAP])
+        if mutation == MutationType.CHANGE_TIME_SLOT:
+            session = random.choice(schedule.sessions)
+            session.time_slot = entities.time_slot.TimeSlot(
+                time=random.choice([
+                    entities.time_slot.TimeSlotTime.FIRST,
+                    entities.time_slot.TimeSlotTime.SECOND,
+                    entities.time_slot.TimeSlotTime.THIRD,
+                    entities.time_slot.TimeSlotTime.FOURTH,
+                    entities.time_slot.TimeSlotTime.FIFTH,
+                    entities.time_slot.TimeSlotTime.SIXTH,
+                ]),
+                day=random.choice([
+                    entities.time_slot.TimeSlotDay.MONDAY,
+                    entities.time_slot.TimeSlotDay.TUESDAY,
+                    entities.time_slot.TimeSlotDay.WEDNESDAY,
+                    entities.time_slot.TimeSlotDay.THURSDAY,
+                    entities.time_slot.TimeSlotDay.FRIDAY,
+                ])
+            )
+        elif mutation == MutationType.CHANGE_TEACHER:
+            session = random.choice(schedule.sessions)
+            teacher_candidates = [t for t in teachers if session.subject.name in [s.name for s in t.teachable_subjects]]
+            session.teacher = random.choice(teacher_candidates)
+        elif mutation == MutationType.SWAP:
+            i1, i2 = random.choices(list(range(len(schedule.sessions))), k=2)
+            schedule.sessions[i2].time_slot = schedule.sessions[i1].time_slot
+            schedule.sessions[i1].time_slot = schedule.sessions[i2].time_slot
+        else:
+            raise NotImplementedError()
+
         return schedule
